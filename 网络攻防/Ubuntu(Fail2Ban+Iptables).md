@@ -62,7 +62,8 @@ port    = ssh
 filter = sshd[mode=%(mode)s]
 # 如果你上面定义了全局变量, 请修改全局变量
 #findtime = 5m 		# 在5分钟之内
-#maxretry = 3  		# 失败3次
+#MaxAuthTries = 3  	# 认证失败3次 
+		# 动词词语不一致,详见 (https://superuser.com/questions/1180000/fail2ban-has-maxretry-of-3-but-i-see-authentication-failures-repeated-5-times)
 #bantime = 7h  		# 封锁7小时
 logpath = %(sshd_log)s
 backend = %(sshd_backend)s
