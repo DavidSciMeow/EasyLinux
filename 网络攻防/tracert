@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# 检查参数是否正确
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <destination>"
+    exit 1
+fi
+
+DEST="$1"
+
+# 定义私有IP检查函数
+is_private_ip() {
+    local ip=$1
+    [[ $ip =~ ^10\. ]] ||
+        [[ $ip =~ ^192\.168\. ]] ||
+        [[ $ip =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] && return 0 || return 1
+}
+
+# 定义网络信息查询函数
+get_network_info() {
+    local ip="$1"
+
+    # 处理私有地址
+    if is_private_ip "$ip"; then
+        printf "Private IP\tN/A"
+        return
+    fi
+
+    # 反转IP格式用于DNS查询
+    reversed_ip=$(awk -F. '{print $4"."$3"."$2"."$1}' <<<"$ip")
+
+    # 查询ASN和CIDR信息
+    asn_data=$(dig @8.8.8.8 +short "${reversed_ip}.origin.asn.cymru.com" TXT 2>/dev/null)
+
+    # 处理无结果情况
+    if [ -z "$asn_data" ]; then
+        printf "N/A\tN/A"
+        return
+    fi
+
+    cidr=$(awk -F'|' '{gsub(/"/, "", $2); print $2}' <<<"$asn_data" | xargs)
+    asn=$(awk -F'|' '{gsub(/"/, "", $1); print $1}' <<<"$asn_data" | xargs)
+
+    printf "%-50s %-30s" "${asn:-N/A}" "${cidr:-N/A}"
+}
+
+# 输出标题头
+print_header() {
+    echo
+    echo "HOST: [$(hostname)] -> Trace To: [$DEST]"
+    echo "Start: @$(date)"
+    printf "%-5s %-18s %-10s %-16s %-50s %-30s\n" "No." "IP Addr." "[pkloss %]" "[avg(ms)±(stdev)]" "ASN(list)" "CIDR(subnet)"
+}
+
+# 清除屏幕并打印标题头
+clear
+print_header
+
+# 执行MTR并处理输出
+mtr --no-dns --report --report-cycles 1 --report-wide "$DEST" | while IFS= read -r line; do
+    # 提取行中的第一个有效IP
+    ip=$(grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' <<<"$line" | head -n1)
+
+    # 非IP行直接输出
+    if [ -z "$ip" ]; then
+        continue
+    fi
+
+    # 获取网络信息
+    network_info=$(get_network_info "$ip")
+
+    # 提取其他信息
+    no=$(echo "$line" | awk '{print $1}' | sed 's/|--//')
+    pktloss=$(echo "$line" | awk '{print $3}')
+    avg=$(echo "$line" | awk '{print $5}')
+    stdev=$(echo "$line" | awk '{print $9}')
+
+    # 构造新行并输出
+    output=$(printf "%-5s %-18s [%-8s] [%-6s±(%-6s)] %s\n" "$no" "$ip" "$pktloss" "$avg" "$stdev" "$network_info")
+
+    # 输出结果
+    echo -e "$output"
+done
